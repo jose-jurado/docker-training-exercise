@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  # 💬 Chatbot - Backend REST API service
+  chatbot:
+    # TODO: Build from the /chatbot/Dockerfile when ready
+
+  # 🎨 UI - Web interface
+  ui:
+    # TODO: Build from the /ui/Dockerfile when ready
+
+  # 🧠 LLM - Language model for response generation
+  llm:
+    # TODO: You can use a local container for the LLM. See localai/localai:latest-cpu
+    # Alternatively, connect to an external LLM service like OpenAI and comment out this section
+
+  # 🔢 Encoder - Embedding model for vectorization
+  # GPU VERSION:
+  # encoder:
+  #   image: ghcr.io/huggingface/text-embeddings-inference:latest
+  #   container_name: encoder
+
+  # CPU VERSION:
+  encoder:
+    image: ghcr.io/substratusai/stapi:latest
+    container_name: encoder
+    environment:
+      - MODEL_ID=sentence-transformers/all-MiniLM-L6-v2
+      - PORT=8001
+    # TODO: complete the setup
+
+  # 🗄️ Vector-DB - Document database with semantic search
+  vector-db:
+    image: qdrant/qdrant:latest
+    container_name: vector-db
+    # TODO: complete the setup
+
+  # ⚒️ Data-Indexer - Batch job for document processing
+  data-indexer:
+    # TODO: Build from the /data-indexer/Dockerfile when ready
+
+networks:
+  rag-network:
+    driver: bridge
+
+volumes:
+  llm-data:
+  encoder-data:
+  qdrant-storage:
