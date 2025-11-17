@@ -4,18 +4,25 @@ services:
   # 💬 Chatbot - Backend REST API service
   chatbot:
     # TODO: Build from the /chatbot/Dockerfile when ready
-
+    #desde que carpeta coger el codigo , para consruit 
+    build:
+      context: ./Chatbot #carpeta como context
+      dockerfile: dockerfile #dockerfile 
+    
   # 🎨 UI - Web interface
   ui:
     # TODO: Build from the /ui/Dockerfile when ready
-
+    build:
+      context: ./ui
+      dockerfile: dockerfile
   # 🧠 LLM - Language model for response generation
   llm:
+  #aqui se usa imagen porque es un servicio de terceros
     image: ghcr.io/berriai/litellm:latest  
     container_name: llm
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      # Modelo que usara el el llm
+      #Modelo que usara el el llm
       - LITELLM_MODEL=gpt-4o-mini
       #puerto
       - PORT=4000
@@ -33,13 +40,23 @@ services:
     environment:
       - MODEL_ID=sentence-transformers/all-MiniLM-L6-v2
       - PORT=8001
+    networks:
+    - rag-network
+    volumes:
+    - encoder-data:/data  
     # TODO: complete the setup
 
   # 🗄️ Vector-DB - Document database with semantic search
   vector-db:
     image: qdrant/qdrant:latest
     container_name: vector-db
-    # TODO: complete the setup
+    volumes:
+    - qdrant-storage:/qdrant/storage #es la ruta donde Qdrant guarda los datos dentro del contenedor
+    networks:
+    - rag-network
+    #con esta red ,chatbot o data-indexer le pueden  hablar como http://vector-db:6333
+
+
 
   # ⚒️ Data-Indexer - Batch job for document processing
   data-indexer:
