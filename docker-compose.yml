@@ -11,8 +11,14 @@ services:
 
   # 🧠 LLM - Language model for response generation
   llm:
-    # TODO: You can use a local container for the LLM. See localai/localai:latest-cpu
-    # Alternatively, connect to an external LLM service like OpenAI and comment out this section
+    image: ghcr.io/berriai/litellm:latest  
+    container_name: llm
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # Modelo que usara el el llm
+      - LITELLM_MODEL=gpt-4o-mini
+      #puerto
+      - PORT=4000
 
   # 🔢 Encoder - Embedding model for vectorization
   # GPU VERSION:
