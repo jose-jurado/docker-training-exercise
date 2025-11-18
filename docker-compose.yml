@@ -12,6 +12,10 @@ services:
       - llm
       - encoder
       - vector-db
+    environment:
+      - LLM_URL=http://llm:4000             #para generar respuestas
+      - VECTOR_DB_URL=http://vector-db:6333 #para hacer consultas rag
+      - ENCODER_URL=http://encoder:8001     #para consultar embeddings
     networks:
     - rag-network
     
@@ -23,6 +27,8 @@ services:
       dockerfile: dockerfile
     networks:
     - rag-network
+    ports:
+      -"3000:3000"
   # 🧠 LLM - Language model for response generation
   llm:
   #aqui se usa imagen porque es un servicio de terceros
