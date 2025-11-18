@@ -8,6 +8,12 @@ services:
     build:
       context: ./Chatbot #carpeta como context
       dockerfile: dockerfile #dockerfile 
+    depends_on:
+      - llm
+      - encoder
+      - vector-db
+    networks:
+    - rag-network
     
   # 🎨 UI - Web interface
   ui:
@@ -15,6 +21,8 @@ services:
     build:
       context: ./ui
       dockerfile: dockerfile
+    networks:
+    - rag-network
   # 🧠 LLM - Language model for response generation
   llm:
   #aqui se usa imagen porque es un servicio de terceros
@@ -26,6 +34,8 @@ services:
       - LITELLM_MODEL=gpt-4o-mini
       #puerto
       - PORT=4000
+    networks:
+    - rag-network
 
   # 🔢 Encoder - Embedding model for vectorization
   # GPU VERSION:
@@ -61,6 +71,19 @@ services:
   # ⚒️ Data-Indexer - Batch job for document processing
   data-indexer:
     # TODO: Build from the /data-indexer/Dockerfile when ready
+    
+    build:
+      context: ./data-indexer
+      dockerfile: dockerfile
+    environment:
+      - ENCODER_URL=http://encoder:8001
+      - VECTOR_DB_URL=http://vector-db:6333
+    depends_on:
+      - encoder
+      - vector-db
+    networks:
+      - rag-network
+    
 
 networks:
   rag-network:
