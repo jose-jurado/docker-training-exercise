@@ -7,7 +7,7 @@ services:
     #desde que carpeta coger el codigo , para consruit 
     build:
       context: ./Chatbot #carpeta como context
-      dockerfile: dockerfile #dockerfile 
+      dockerfile: Dockerfile #dockerfile 
     depends_on:
       - llm
       - encoder
@@ -18,17 +18,21 @@ services:
       - ENCODER_URL=http://encoder:8001     #para consultar embeddings
     networks:
     - rag-network
+    ports:
+      - "8080:8080"
     
   # 🎨 UI - Web interface
   ui:
     # TODO: Build from the /ui/Dockerfile when ready
     build:
       context: ./ui
-      dockerfile: dockerfile
+      dockerfile: Dockerfile
+    environment:
+      - CHATBOT_API_URL=http://chatbot:8080
     networks:
     - rag-network
     ports:
-      -"3000:3000"
+    - "3000:3000"
   # 🧠 LLM - Language model for response generation
   llm:
   #aqui se usa imagen porque es un servicio de terceros
@@ -80,7 +84,7 @@ services:
     
     build:
       context: ./data-indexer
-      dockerfile: dockerfile
+      dockerfile: Dockerfile
     environment:
       - ENCODER_URL=http://encoder:8001
       - VECTOR_DB_URL=http://vector-db:6333

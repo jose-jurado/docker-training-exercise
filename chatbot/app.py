@@ -289,8 +289,16 @@ async def chat_completions(request: ChatCompletionRequest):
         logger.info("Retrieving context from vector DB")
         
         # TODO:Generate response using LLM with context
-        logger.info("Generating response with LLM")
-        response_content = ""
+        logger.info("Generating response with LLM (dummy)")
+
+        # Coger el último mensaje de usuario de la request
+        user_query = next(
+            (msg.content for msg in reversed(request.messages) if msg.role == "user"),
+            ""
+        )
+
+        response_content = f"Soy un bot de pruebas, Me has preguntado: {user_query}"
+
         
         # Return OpenAI-compatible response
         logger.info("Returning response to client")
