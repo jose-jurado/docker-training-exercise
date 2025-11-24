@@ -29,22 +29,22 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - CHATBOT_API_URL=http://chatbot:8080   # importante: NO localhost, sino nombre del servicio
+      - CHATBOT_API_URL=http://chatbot:8080   
     networks:
       - rag-network
 
   # 🧠 LLM - LiteLLM como proxy hacia ChatGPT
     
   llm:
-    image: ghcr.io/berriai/litellm:main-latest   # ← cambia la imagen aquí
+    image: ghcr.io/berriai/litellm:main-latest   
     container_name: llm
     ports:
       - "4000:4000"
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
     volumes:
-      - ./llm/litellm-config.yaml:/app/config.yaml   # ← monta el archivo, no un directorio
-    command: ["--config", "/app/config.yaml"]        # ← usa el mismo path que arriba
+      - ./llm/litellm-config.yaml:/app/config.yaml   
+    command: ["--config", "/app/config.yaml"]       
     networks:
       - rag-network
 
@@ -56,7 +56,7 @@ services:
       - MODEL=sentence-transformers/all-MiniLM-L6-v2
       - MODEL_ID=sentence-transformers/all-MiniLM-L6-v2
     ports:
-      - "8001:8080"                    # host 8001 -> contenedor 8080 (stapi por defecto)
+      - "8001:8080"                 
     networks:
       - rag-network
 
