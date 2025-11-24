@@ -150,8 +150,27 @@ class RAGChatbot:
         logger.info(f"Retrieving top {k} documents for query: {query[:100]}...")
         
         try:
-            # TODO: Complete the retrieval logic
-            return "Hi AI!"
+
+            #docs = self.vectorstore.similarity_search(query, k=k)
+
+            #if not docs:
+            #    logger.warning("No relevant documents found in vector DB.")
+            #    relevant_docs = ""
+            #else:
+            #    relevant_docs = "\n\n".join([doc.page_content for doc in docs])
+            
+            query_vector = self.embeddings.embed_query(query)
+            results = self.qdrant_client.query_points(
+                collection_name=COLLECTION_NAME,
+                query=query_vector,
+                limit=k,
+                with_payload=True,
+                score_threshold=0.7
+            ).points
+
+            relevant_docs = "\n\n".join([result.payload['page_content'] for result in results])
+
+            return relevant_docs
             
         except Exception as e:
             logger.error(f"Error retrieving context: {e}")
@@ -182,8 +201,20 @@ class RAGChatbot:
         
         logger.info(f"Generating response for query: {user_query[:100]}...")
         
-        # TODO: Construct prompt with context
-        system_prompt = ""
+        # Construct prompt with context
+        system_prompt = (
+        "Eres un asistente de IA experto."
+        "Responde a la pregunta del usuario basándote EXCLUSIVAMENTE en el contexto proporcionado a continuación."
+        "Si la respuesta no se encuentra en el contexto, simplemente di amablemente que no tienes suficiente información."
+        "Contexto:"
+        f"{context}"
+        )
+
+        # system_prompt in english
+        #You are a helpful and expert AI Assistant.
+        #Answer the user's question based EXCLUSIVELY on the context provided below.
+        #If the answer is not in the context, simply politely say that you don't have enough information.
+        #Context:
         
         # Prepare LLM request (OpenAI-compatible format)
         llm_messages = [
@@ -282,15 +313,27 @@ async def chat_completions(request: ChatCompletionRequest):
         raise HTTPException(status_code=503, detail="Chatbot service not initialized")
     
     try:
-        # TODO: Extract user query
-        user_query = ""
+        # Extract user query
+        user_query = next((msg.content for msg in reversed(request.messages) if msg.role == "user"), None)
         
-        # TODO: Retrieve relevant context from vector DB
+        if user_query is None:
+            raise HTTPException(status_code=400, detail="No user message found")
+        
+        # Retrieve relevant context from vector DB
+        relevant_context = rag_chatbot.retrieve_context(
+            query=user_query, 
+            k=TOP_K_RESULTS
+        )
         logger.info("Retrieving context from vector DB")
         
-        # TODO:Generate response using LLM with context
+        # Generate response using LLM with context
         logger.info("Generating response with LLM")
-        response_content = ""
+        response_content = rag_chatbot.generate_response(
+            messages=request.messages,
+            context=relevant_context,
+            temperature=request.temperature,
+            max_tokens=request.max_tokens
+        )
         
         # Return OpenAI-compatible response
         logger.info("Returning response to client")

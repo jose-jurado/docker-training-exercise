@@ -3,11 +3,15 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# TODO: Copy application code
+# Copy application code
 
-# TODO: Install dependencies
+COPY . .
 
-# TODO: Expose web server port
+# Install dependencies
+RUN npm install
+
+# Expose web server port
+EXPOSE 3000
 
 # Run the UI application
 CMD ["npm", "start"]
