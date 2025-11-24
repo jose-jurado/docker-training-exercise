@@ -150,9 +150,23 @@ class RAGChatbot:
         logger.info(f"Retrieving top {k} documents for query: {query[:100]}...")
         
         try:
-            # TODO: Complete the retrieval logic
-            return "Hi AI!"
+            docs = self.vectorstore.similarity_search(query, k=k)
+            if not docs:
+                logger.warning("No documents found for the given query")
+                return ""
             
+            context_chunks = []
+            for i, doc in enumerate(docs, start=1):
+                text = getattr(doc, "page_content", "")
+                if not text:
+                    continue
+                context_chunks.append(f"[Document {i}]\n{text}")
+
+            context = "\n\n".join(context_chunks)
+            logger.debug(f"Retrieved context length: {len(context)} characters")
+
+            return context
+
         except Exception as e:
             logger.error(f"Error retrieving context: {e}")
             raise HTTPException(status_code=503, detail=f"Vector DB error: {str(e)}")
@@ -182,8 +196,21 @@ class RAGChatbot:
         
         logger.info(f"Generating response for query: {user_query[:100]}...")
         
-        # TODO: Construct prompt with context
-        system_prompt = ""
+        
+        system_prompt = (
+            "Eres un asistente virtual útil.\n"
+            "Recibirás una sección CONTEXT, que puede estar vacía o incompleta.\n\n"
+            "Instrucciones:\n"
+             "- Usa el CONTEXT solo como apoyo para responder.\n"
+                "- Si el CONTEXT contiene información útil, inclúyela en la respuesta.\n"
+            "- Si el CONTEXT no es suficiente, dilo claramente\n"
+            "  y responde de la mejor forma posible con conocimientos generales.\n"
+            "- Responde SIEMPRE en español.\n\n"
+            f"CONTEXT:\n{context}\n"
+            "-----\n"
+            "Ahora responde la pregunta del usuario."
+        )
+
         
         # Prepare LLM request (OpenAI-compatible format)
         llm_messages = [
@@ -282,15 +309,28 @@ async def chat_completions(request: ChatCompletionRequest):
         raise HTTPException(status_code=503, detail="Chatbot service not initialized")
     
     try:
-        # TODO: Extract user query
-        user_query = ""
+        user_query = next(
+            (msg.content for msg in reversed(request.messages) if msg.role == "user"),
+            ""
+        )
+        if not user_query:
+            logger.error("No user message found in request")
+            raise HTTPException(status_code=400, detail="No user message found in request")
         
-        # TODO: Retrieve relevant context from vector DB
+        logger.info(f"User query extracted: {user_query[:100]}...")
+        
+        
         logger.info("Retrieving context from vector DB")
+        context = rag_chatbot.retrieve_context(user_query, k=TOP_K_RESULTS)
         
-        # TODO:Generate response using LLM with context
+        
         logger.info("Generating response with LLM")
-        response_content = ""
+        response_content = rag_chatbot.generate_response(
+            messages=request.messages,
+            context=context,
+            temperature=request.temperature or 0.7,
+            max_tokens=request.max_tokens or 2048,
+        )
         
         # Return OpenAI-compatible response
         logger.info("Returning response to client")

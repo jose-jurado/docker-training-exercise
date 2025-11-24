@@ -3,41 +3,89 @@ version: '3.8'
 services:
   # 💬 Chatbot - Backend REST API service
   chatbot:
-    # TODO: Build from the /chatbot/Dockerfile when ready
+    build: ./chatbot
+    container_name: chatbot
+    ports:
+    - "8080:8080"
+    environment:
+    - ENCODER_URL=http://encoder:8080
+    - LLM_URL=http://llm:4000
+    - VECTOR_DB_URL=http://vector-db:6333
+    - COLLECTION_NAME=documents
+    - TOP_K_RESULTS=2
+    - MODEL_NAME=gpt-4o-mini
+    - LITELLM_API_KEY=sk-litellm-test-123  # misma master_key
+    depends_on:
+    - encoder
+    - vector-db
+    - llm
+    networks:
+    - rag-network
 
   # 🎨 UI - Web interface
   ui:
-    # TODO: Build from the /ui/Dockerfile when ready
+    build: ./ui
+    container_name: ui
+    ports:
+      - "3000:3000"
+    environment:
+      - CHATBOT_API_URL=http://chatbot:8080   # importante: NO localhost, sino nombre del servicio
+    networks:
+      - rag-network
 
-  # 🧠 LLM - Language model for response generation
+  # 🧠 LLM - LiteLLM como proxy hacia ChatGPT
+    
   llm:
-    # TODO: You can use a local container for the LLM. See localai/localai:latest-cpu
-    # Alternatively, connect to an external LLM service like OpenAI and comment out this section
+    image: ghcr.io/berriai/litellm:main-latest   # ← cambia la imagen aquí
+    container_name: llm
+    ports:
+      - "4000:4000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - ./llm/litellm-config.yaml:/app/config.yaml   # ← monta el archivo, no un directorio
+    command: ["--config", "/app/config.yaml"]        # ← usa el mismo path que arriba
+    networks:
+      - rag-network
 
-  # 🔢 Encoder - Embedding model for vectorization
-  # GPU VERSION:
-  # encoder:
-  #   image: ghcr.io/huggingface/text-embeddings-inference:latest
-  #   container_name: encoder
-
-  # CPU VERSION:
+  # 🔢 Encoder - Embedding model para vectorización
   encoder:
     image: ghcr.io/substratusai/stapi:latest
     container_name: encoder
     environment:
+      - MODEL=sentence-transformers/all-MiniLM-L6-v2
       - MODEL_ID=sentence-transformers/all-MiniLM-L6-v2
-      - PORT=8001
-    # TODO: complete the setup
+    ports:
+      - "8001:8080"                    # host 8001 -> contenedor 8080 (stapi por defecto)
+    networks:
+      - rag-network
 
-  # 🗄️ Vector-DB - Document database with semantic search
+  # 🗄️ Vector-DB - Qdrant
   vector-db:
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant:v1.9.0
     container_name: vector-db
-    # TODO: complete the setup
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant-storage:/qdrant/storage
+    networks:
+      - rag-network
 
-  # ⚒️ Data-Indexer - Batch job for document processing
+  # ⚒️ Data-Indexer - Batch job para indexar documentos
   data-indexer:
-    # TODO: Build from the /data-indexer/Dockerfile when ready
+    build: ./data-indexer
+    container_name: data-indexer
+    networks:
+      - rag-network
+    volumes:
+      - ./resources:/app/resources
+    environment:
+      - ENCODER_URL=http://encoder:8080
+      - VECTOR_DB_URL=http://vector-db:6333
+      - COLLECTION_NAME=documents
+    depends_on:
+      - encoder
+      - vector-db
 
 networks:
   rag-network:
