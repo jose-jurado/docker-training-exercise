@@ -1,6 +1,6 @@
 // Configuration
 const API_ENDPOINT = '/api/chat';
-const MODEL_NAME = 'Mistral-7B-Instruct-v0.2';
+const MODEL_NAME = 'gpt-4o-mini';
 
 // DOM Elements
 const chatForm = document.getElementById('chat-form');
@@ -41,6 +41,7 @@ chatForm.addEventListener('submit', async (e) => {
     try {
         // Show typing indicator
         const typingId = addTypingIndicator();
+        console.log("\nConversacion\n",conversationHistory)
         
         // Call chatbot API
         const response = await fetch(API_ENDPOINT, {
@@ -53,8 +54,10 @@ chatForm.addEventListener('submit', async (e) => {
                 messages: conversationHistory,
                 temperature: 0.7,
                 max_tokens: 512
-            })
+            })            
         });
+
+        console.log(response)
         
         // Remove typing indicator
         removeTypingIndicator(typingId);

@@ -12,6 +12,8 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import requests
 from qdrant_client import QdrantClient
+from langchain_qdrant import QdrantVectorStore
+
 from langchain_community.vectorstores import Qdrant
 from langchain.embeddings.base import Embeddings
 
@@ -28,7 +30,7 @@ LLM_URL = os.getenv('LLM_URL', 'http://llm:8002')
 VECTOR_DB_URL = os.getenv('VECTOR_DB_URL', 'http://vector-db:6333')
 COLLECTION_NAME = os.getenv('COLLECTION_NAME', 'documents')
 TOP_K_RESULTS = int(os.getenv('TOP_K_RESULTS', '2'))
-MODEL_NAME = os.getenv('MODEL_NAME', 'TinyLlama-1.1B-Chat-v1.0')
+MODEL_NAME = os.getenv('MODEL_NAME', 'gpt-4o-mini')
 
 logger.info("Starting chatbot service with configuration:")
 logger.info(f"  ENCODER_URL: {ENCODER_URL}")
@@ -125,13 +127,19 @@ class RAGChatbot:
         logger.info("Initializing RAG Chatbot...")
         
         self.embeddings = EncoderEmbeddings(encoder_url=ENCODER_URL)
-        self.qdrant_client = QdrantClient(url=VECTOR_DB_URL)
+        """self.qdrant_client = QdrantClient(url=VECTOR_DB_URL)"""
         
         logger.info(f"Connecting to Qdrant collection: {COLLECTION_NAME}")
-        self.vectorstore = Qdrant(
+        """self.vectorstore = Qdrant(
             client=self.qdrant_client,
             collection_name=COLLECTION_NAME,
             embeddings=self.embeddings
+        )"""
+
+        self.vectorstore = QdrantVectorStore.from_existing_collection(
+            embedding=self.embeddings,
+            collection_name=COLLECTION_NAME,
+            url=VECTOR_DB_URL
         )
         
         logger.info("RAG Chatbot initialized successfully")
@@ -151,7 +159,13 @@ class RAGChatbot:
         
         try:
             # TODO: Complete the retrieval logic
-            return "Hi AI!"
+            #Devuelve los docs mas similares a la query
+            retrieved_docs= self.vectorstore.similarity_search(query=query,k=k)
+
+            # 2. Concatena el contenido de los documentos recuperados
+            context = "\n---\n".join([doc.page_content for doc in retrieved_docs])
+
+            return context
             
         except Exception as e:
             logger.error(f"Error retrieving context: {e}")
@@ -183,7 +197,16 @@ class RAGChatbot:
         logger.info(f"Generating response for query: {user_query[:100]}...")
         
         # TODO: Construct prompt with context
-        system_prompt = ""
+        # Definición del prompt del sistema RAG
+        system_prompt = f"""
+        Eres un asistente útil y experto. Responde a la pregunta del usuario utilizando
+        únicamente el contexto proporcionado en el bloque 'CONTEXTO RELEVANTE'. 
+        Si el contexto no contiene la respuesta, debes indicar amablemente que la información no
+        está disponible en tu base de datos.
+
+        CONTEXTO RELEVANTE: 
+        {context}
+        """
         
         # Prepare LLM request (OpenAI-compatible format)
         llm_messages = [
@@ -263,7 +286,7 @@ async def health_check():
         "collection": COLLECTION_NAME
     }
 
-
+#puerto : 8080
 @app.post("/v1/chat/completions", response_model=ChatCompletionResponse)
 async def chat_completions(request: ChatCompletionRequest):
     """
@@ -284,16 +307,29 @@ async def chat_completions(request: ChatCompletionRequest):
     try:
         # TODO: Extract user query
         user_query = ""
+        # Iteramos al revés para encontrar el último mensaje del usuario
+        for message in reversed(request.messages):
+            if message.role == "user":
+                user_query = message.content
+                break
         
         # TODO: Retrieve relevant context from vector DB
         logger.info("Retrieving context from vector DB")
+        #Recupera trozos de documentos de qdrant
+        retrieved_context = rag_chatbot.retrieve_context(user_query)
+
+        logger.info(f"Contexto Recuperado: {retrieved_context[:100]}...")
         
         # TODO:Generate response using LLM with context
-        logger.info("Generating response with LLM")
-        response_content = ""
+        response_content = rag_chatbot.generate_response(
+            context=retrieved_context,
+            max_tokens=request.max_tokens,
+            temperature=request.temperature,
+            messages=request.messages)
         
         # Return OpenAI-compatible response
         logger.info("Returning response to client")
+
         return ChatCompletionResponse(
             created=int(time.time()),
             model=request.model,

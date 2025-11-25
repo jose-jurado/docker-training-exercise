@@ -4,22 +4,63 @@ services:
   # 💬 Chatbot - Backend REST API service
   chatbot:
     # TODO: Build from the /chatbot/Dockerfile when ready
+    build:
+      context: ./chatbot 
+      dockerfile: Dockerfile 
+    container_name: chatbot
+    environment:
+
+      # URLs para otros microservicios (usan nombres de servicio y puertos internos)
+      ENCODER_URL: http://encoder:8001
+      LLM_URL: http://llm:4000 
+      VECTOR_DB_URL: http://vector-db:6333
+
+      # Variables de configuración del RAG
+      COLLECTION_NAME: documents
+      TOP_K_RESULTS: 2
+      MODEL_NAME: "openai/gpt-4o-mini" #Por defecto estaba tiny-llama
+    ports:
+      - "8080:8080"
+    networks:
+      - rag-network
+    depends_on: #depende de otro servicios/contenedores
+      - vector-db # depende porque almacena los embeddings en la bbdd vectorial
+      - encoder #depende porque codea los embeddings en la vector-db 
+      - llm #depende para generar la respesta a través de los embeddings
+    
 
   # 🎨 UI - Web interface
   ui:
-    # TODO: Build from the /ui/Dockerfile when ready
-
+   # TODO: Build from the /ui/Dockerfile when ready
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    container_name : ui
+    ports:
+      - "3000:3000"
+    environment:
+      CHATBOT_API_URL: http://chatbot:8080
+    networks:
+      - rag-network
+  
   # 🧠 LLM - Language model for response generation
   llm:
     # TODO: You can use a local container for the LLM. See localai/localai:latest-cpu
     # Alternatively, connect to an external LLM service like OpenAI and comment out this section
+    image : litellm/litellm:latest  
+    container_name : llm
+    environment :
+     OPENAI_API_KEY: $OPENAI_API_KEY
+    ports:
+    - 4000:4000
+    volumes:
+     - ./llm/config.yaml:/app/config.yaml 
+    networks:
+    - rag-network
+    command: ["--config", "/app/config.yaml"]
+    
 
   # 🔢 Encoder - Embedding model for vectorization
-  # GPU VERSION:
-  # encoder:
-  #   image: ghcr.io/huggingface/text-embeddings-inference:latest
-  #   container_name: encoder
-
   # CPU VERSION:
   encoder:
     image: ghcr.io/substratusai/stapi:latest
@@ -27,23 +68,50 @@ services:
     environment:
       - MODEL_ID=sentence-transformers/all-MiniLM-L6-v2
       - PORT=8001
-    # TODO: complete the setup
+    volumes:
+      # Monta el volumen persistente en la ubicación de caché de HuggingFace/Sentence Transformers
+      # Esto asegura que el modelo solo se descargue una vez.
+      - encoder-data:/root/.cache/huggingface/hub 
+    ports:
+      - "8001:8001"
+    networks:
+      - rag-network
+   
+    
 
   # 🗄️ Vector-DB - Document database with semantic search
   vector-db:
+  # TODO: complete the setup
     image: qdrant/qdrant:latest
     container_name: vector-db
-    # TODO: complete the setup
-
+    ports:
+      - "6333:6333"
+    volumes: 
+      - qdrant-storage:/qdrant/storage
+    networks:
+      - rag-network
+    
   # ⚒️ Data-Indexer - Batch job for document processing
+  # TODO: Build from the /data-indexer/Dockerfile when ready
   data-indexer:
-    # TODO: Build from the /data-indexer/Dockerfile when ready
+    build:
+      context : ./data-indexer
+      dockerfile: Dockerfile
+    container_name: data-indexer
+    networks:
+      - rag-network
+    volumes: 
+      - ./resources/documents:/app/documents #HOST_PATH:CONTAINER_PATH
+    command: /app/documents/BOE-A-2025-7766.pdf #Ruta para indexar PDF
+    depends_on: #dependencia para esperar la BBDD y encoder
+      - vector-db
+      - encoder
 
 networks:
   rag-network:
-    driver: bridge
+    driver: bridge #Permite comunicación entre contendores #ej:http://chatbot:8080
 
 volumes:
-  llm-data:
+  llm-data: 
   encoder-data:
   qdrant-storage:
