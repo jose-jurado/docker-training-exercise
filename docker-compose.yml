@@ -15,9 +15,10 @@ services:
     environment:
       - LLM_URL=http://llm:4000             #para generar respuestas
       - VECTOR_DB_URL=http://vector-db:6333 #para hacer consultas rag
-      - ENCODER_URL=http://encoder:8001     #para consultar embeddings
+      - ENCODER_URL=http://encoder:8080     #para consultar embeddings
+      - TOP_K_RESULTS=6
     networks:
-    - rag-network
+      - rag-network
     ports:
       - "8080:8080"
     
@@ -36,16 +37,20 @@ services:
   # 🧠 LLM - Language model for response generation
   llm:
   #aqui se usa imagen porque es un servicio de terceros
-    image: ghcr.io/berriai/litellm:latest  
+    image: ghcr.io/berriai/litellm:main-latest  
     container_name: llm
+    ports:
+    - "4000:4000"
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      #Modelo que usara el el llm
-      - LITELLM_MODEL=gpt-4o-mini
-      #puerto
-      - PORT=4000
+      # Montamos el config.yaml dentro del contenedor
+    volumes: 
+    - ./llm/config.yaml:/app/config.yaml    
+    entrypoint: ["litellm"]
+    command: ["--config", "/app/config.yaml"]  
     networks:
     - rag-network
+    
 
   # 🔢 Encoder - Embedding model for vectorization
   # GPU VERSION:
@@ -58,8 +63,7 @@ services:
     image: ghcr.io/substratusai/stapi:latest
     container_name: encoder
     environment:
-      - MODEL_ID=sentence-transformers/all-MiniLM-L6-v2
-      - PORT=8001
+    - MODEL_ID=sentence-transformers/all-MiniLM-L6-v2 
     networks:
     - rag-network
     volumes:
@@ -75,6 +79,15 @@ services:
     networks:
     - rag-network
     #con esta red ,chatbot o data-indexer le pueden  hablar como http://vector-db:6333
+    ports:
+      - "6333:6333"
+#buenas practicas healthcheck 
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      interval: 10s
+      timeout: 20s
+      retries: 5
+      start_period: 30s
 
 
 
@@ -86,13 +99,17 @@ services:
       context: ./data-indexer
       dockerfile: Dockerfile
     environment:
-      - ENCODER_URL=http://encoder:8001
+      - ENCODER_URL=http://encoder:8080
       - VECTOR_DB_URL=http://vector-db:6333
+      - COLLECTION_NAME=documents
     depends_on:
       - encoder
       - vector-db
     networks:
       - rag-network
+    volumes:
+      - ./resources:/data/resources #carpeta del pdf    
+    command: ["--remove-existing-collection", "/data/resources/documents"]
     
 
 networks:

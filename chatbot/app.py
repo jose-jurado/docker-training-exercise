@@ -11,8 +11,9 @@ from typing import List, Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import requests
-from qdrant_client import QdrantClient
-from langchain_community.vectorstores import Qdrant
+#from qdrant_client import QdrantClient
+from langchain_qdrant import QdrantVectorStore
+#from langchain_community.vectorstores import Qdrant
 from langchain.embeddings.base import Embeddings
 
 # Configure logging
@@ -28,7 +29,7 @@ LLM_URL = os.getenv('LLM_URL', 'http://llm:8002')
 VECTOR_DB_URL = os.getenv('VECTOR_DB_URL', 'http://vector-db:6333')
 COLLECTION_NAME = os.getenv('COLLECTION_NAME', 'documents')
 TOP_K_RESULTS = int(os.getenv('TOP_K_RESULTS', '2'))
-MODEL_NAME = os.getenv('MODEL_NAME', 'TinyLlama-1.1B-Chat-v1.0')
+MODEL_NAME = os.getenv('MODEL_NAME', 'gpt-4o-mini')
 
 logger.info("Starting chatbot service with configuration:")
 logger.info(f"  ENCODER_URL: {ENCODER_URL}")
@@ -125,13 +126,13 @@ class RAGChatbot:
         logger.info("Initializing RAG Chatbot...")
         
         self.embeddings = EncoderEmbeddings(encoder_url=ENCODER_URL)
-        self.qdrant_client = QdrantClient(url=VECTOR_DB_URL)
+        #self.qdrant_client = QdrantClient(url=VECTOR_DB_URL)
         
         logger.info(f"Connecting to Qdrant collection: {COLLECTION_NAME}")
-        self.vectorstore = Qdrant(
-            client=self.qdrant_client,
+        self.vectorstore = QdrantVectorStore.from_existing_collection(
+            embedding=self.embeddings,
             collection_name=COLLECTION_NAME,
-            embeddings=self.embeddings
+            url=VECTOR_DB_URL,
         )
         
         logger.info("RAG Chatbot initialized successfully")
@@ -139,83 +140,106 @@ class RAGChatbot:
     def retrieve_context(self, query: str, k: int = TOP_K_RESULTS) -> str:
         """
         Retrieve relevant document chunks from Qdrant
-        
-        Args:
-            query: User query to search for
-            k: Number of top results to retrieve
-            
-        Returns:
-            Concatenated context from retrieved documents
         """
         logger.info(f"Retrieving top {k} documents for query: {query[:100]}...")
-        
+
         try:
-            # TODO: Complete the retrieval logic
-            return "Hi AI!"
-            
+            # Buscar en Qdrant los k documentos más parecidos
+            docs = self.vectorstore.similarity_search(query, k=k)
+
+            logger.info(f"similarity_search devolvió {len(docs)} documentos")
+
+            if not docs:
+                logger.info("No documents found for query, returning empty context")
+                return ""
+
+            # Log de un  trozo de los docs para ver qué están devolviendo
+            for i, d in enumerate(docs[:3]):
+                snippet = d.page_content[:200].replace("\n", " ")
+                logger.info(f"[DOC {i}] filename={d.metadata.get('source_filename')} snippet={snippet!r}")
+
+            # unir los textos del doc e n un solo context
+            context = "\n\n".join(doc.page_content for doc in docs)
+
+            logger.info(f"Context length: {len(context)} characters")
+            return context
+
         except Exception as e:
-            logger.error(f"Error retrieving context: {e}")
+            logger.error(f"Error retrieving context: {e}", exc_info=True)
             raise HTTPException(status_code=503, detail=f"Vector DB error: {str(e)}")
+
     
-    def generate_response(self, messages: List[Message], context: str, 
-                         temperature: float, max_tokens: int) -> str:
+    def generate_response(self, messages: List[Message], context: str,
+                        temperature: float, max_tokens: int) -> str:
         """
         Generate response using LLM with retrieved context
-        
-        Args:
-            messages: Conversation messages
-            context: Retrieved context from vector DB
-            temperature: Sampling temperature
-            max_tokens: Maximum tokens to generate
-            
-        Returns:
-            Generated response text
         """
-        # Extract user query (last user message)
+
+        #extraer la última pregunta del usuario
         user_query = next(
             (msg.content for msg in reversed(messages) if msg.role == "user"),
             ""
         )
-        
         if not user_query:
             raise HTTPException(status_code=400, detail="No user message found")
-        
+
         logger.info(f"Generating response for query: {user_query[:100]}...")
-        
-        # TODO: Construct prompt with context
-        system_prompt = ""
-        
-        # Prepare LLM request (OpenAI-compatible format)
+
+        #solo puede usar el contexto
+        system_prompt = (
+            "Eres un asistente RAG jurídico que responde SIEMPRE en español, "
+            "de forma clara y concisa.\n\n"
+            "Solo puedes utilizar la información que aparece en el CONTEXTO "
+            "proporcionado (fragmentos del BOE).\n\n"
+            "Normas estrictas:\n"
+            "- Usa únicamente el CONTEXTO para responder.\n"
+            "- Puedes citar artículos, disposiciones o capítulos SOLO si aparecen "
+            "claramente en el CONTEXTO.\n"
+            "- Si el CONTEXTO no contiene información relevante para la pregunta, "
+            "responde EXACTAMENTE:\n"
+            "\"No lo sé; esa información no aparece en los documentos disponibles.\"\n"
+            "- No inventes artículos, números de disposición ni contenido que no esté "
+            "en el CONTEXTO.\n"
+        )
+
+        # mensaje de usuario le pasamos contexto + pregunta
+        user_content = (
+            "CONTEXTO:\n"
+            f"{context}\n"
+            f"Pregunta del usuario:\n{user_query}"
+        )
+
         llm_messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_query}
+            {"role": "user", "content": user_content},
         ]
-        
+
         logger.debug(f"Calling LLM with temperature={temperature}, max_tokens={max_tokens}")
-        
+
         try:
-            # Call LLM service
             response = requests.post(
                 f"{LLM_URL}/v1/chat/completions",
                 json={
                     "model": MODEL_NAME,
                     "messages": llm_messages,
                     "temperature": temperature,
-                    "max_tokens": max_tokens
+                    "max_tokens": max_tokens,
                 },
-                timeout=180
+                timeout=180,
             )
             response.raise_for_status()
-            
+
             result = response.json()
-            generated_text = result['choices'][0]['message']['content']
+            generated_text = result["choices"][0]["message"]["content"]
             logger.info(f"Generated response: {len(generated_text)} characters")
-            
+
             return generated_text
-            
+
         except requests.exceptions.RequestException as e:
             logger.error(f"Error calling LLM service: {e}")
             raise HTTPException(status_code=503, detail=f"LLM service error: {str(e)}")
+
+
 
 
 # Initialize FastAPI app
@@ -282,25 +306,41 @@ async def chat_completions(request: ChatCompletionRequest):
         raise HTTPException(status_code=503, detail="Chatbot service not initialized")
     
     try:
-        # TODO: Extract user query
-        user_query = ""
-        
-        # TODO: Retrieve relevant context from vector DB
-        logger.info("Retrieving context from vector DB")
-        
-        # TODO:Generate response using LLM with context
-        logger.info("Generating response with LLM (dummy)")
-
-        # Coger el último mensaje de usuario de la request
+        # Extraer ultimo mensaje del user
         user_query = next(
             (msg.content for msg in reversed(request.messages) if msg.role == "user"),
             ""
         )
+        if not user_query:
+            raise HTTPException(status_code=400, detail="No user message found")
 
-        response_content = f"Soy un bot de pruebas, Me has preguntado: {user_query}"
+        #Recupero contexto desde Qdrant 
+        logger.info("Retrieving context from vector DB")
+        context = rag_chatbot.retrieve_context(user_query)
 
-        
-        # Return OpenAI-compatible response
+        # me aseguro que context sea siempre string
+        if context is None:
+            context = ""
+
+        # Si NO hay contexto, decimos que no lo sé
+        if not context.strip():
+            logger.info("No context returned for query - answering 'no lo sé'")
+            response_content = (
+                "No he encontrado información relacionada con tu pregunta "
+                "en los documentos que tengo indexados. "
+                "No lo sé; esa información no aparece en los documentos disponibles."
+            )
+        else:
+            logger.info("Generating response with LLM via RAGChatbot")
+            response_content = rag_chatbot.generate_response(
+                messages=request.messages,
+                context=context,
+                temperature=request.temperature or 0.7,
+                max_tokens=request.max_tokens or 512
+            )
+
+
+        #Retorno respuesta 
         logger.info("Returning response to client")
         return ChatCompletionResponse(
             created=int(time.time()),
@@ -314,11 +354,12 @@ async def chat_completions(request: ChatCompletionRequest):
                 "finish_reason": "stop"
             }],
             usage={
-                "prompt_tokens": 0,  # Could calculate if needed
+                "prompt_tokens": 0,
                 "completion_tokens": 0,
                 "total_tokens": 0
             }
         )
+
     
     except HTTPException:
         # Re-raise HTTP exceptions

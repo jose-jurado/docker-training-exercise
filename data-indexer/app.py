@@ -21,7 +21,7 @@ from langchain.embeddings.base import Embeddings
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
 import requests
-
+from langchain_qdrant import QdrantVectorStore
 
 class EncoderEmbeddings(Embeddings):
     """Custom embeddings class that connects to the encoder service API"""

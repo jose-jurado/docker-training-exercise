@@ -5,3 +5,4 @@ pypdf>=4.0.0
 unstructured>=0.15.0
 markdown>=3.7
 requests>=2.31.0
+langchain-qdrant

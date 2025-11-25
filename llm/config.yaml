@@ -1,0 +1,11 @@
+#configuración  para usar OpenAI DOC oficial litleLLM
+
+
+model_list:
+  - model_name: gpt-4o-mini  # nombre que usa el chatbot
+    litellm_params:
+      model: gpt-4o-mini                 
+      api_key: "os.environ/OPENAI_API_KEY"
+      api_base: https://api.openai.com/v1
+litellm_settings:
+  drop_params: true
