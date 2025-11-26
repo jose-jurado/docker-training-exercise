@@ -11,9 +11,12 @@ services:
       - "8080:8080"
     environment:
       - ENCODER_URL=http://encoder:8001
-      - LLM_URL=http://llm:8080
+      - LLM_URL=http://llm:4000
       - VECTOR_DB_URL=http://vector-db:6333
-      - MODEL_NAME=tinyllama-1.1b-chat-v1.0.Q4_K_M
+      - MODEL_NAME=gpt-4o-mini
+      - COLLECTION_NAME=documents
+      - TOP_K_RESULTS=5
+      - CHUNK_SIZE=1000
     networks:
       - rag-network
     depends_on:
@@ -31,7 +34,7 @@ services:
       context: ./ui
     container_name: ui
     ports:
-      - "3001:3000"
+      - "3000:3000"
     environment:
       - CHATBOT_API_URL=http://chatbot:8080
     networks:
@@ -43,12 +46,15 @@ services:
   llm:
     # You can use a local container for the LLM. See localai/localai:latest-cpu
     # Alternatively, connect to an external LLM service like OpenAI and comment out this section
-    image: localai/localai:latest-cpu
+    image: ghcr.io/berriai/litellm:main-latest
     container_name: llm
     ports:
-      - "8081:8080"
+      - "4000:4000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
     volumes:
-      - ./llm/models:/models
+      - ./llm/litellm-config.yaml:/app/config.yaml
+    command: ["--config", "/app/config.yaml"] 
     networks:
       - rag-network
     healthcheck:

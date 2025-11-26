@@ -158,17 +158,28 @@ class RAGChatbot:
             #    relevant_docs = ""
             #else:
             #    relevant_docs = "\n\n".join([doc.page_content for doc in docs])
-            
+            logger.info(f"Calling encoder to embed query.")
             query_vector = self.embeddings.embed_query(query)
-            results = self.qdrant_client.query_points(
+            response = self.qdrant_client.query_points(
                 collection_name=COLLECTION_NAME,
                 query=query_vector,
                 limit=k,
                 with_payload=True,
-                score_threshold=0.7
-            ).points
+                #score_threshold=0.7
+            )
 
-            relevant_docs = "\n\n".join([result.payload['page_content'] for result in results])
+            results = response.points if hasattr(response, "points") else response
+
+            logger.info(f"Retrieved {len(results)} documents from Qdrant.")
+
+            if not results:
+                logger.warning("No documents found in vector DB")
+                return "No se encontró contexto relevante en la base de datos."
+            
+            relevant_docs = "\n\n---\n\n".join(p for p in ((getattr(r, "payload", {}) or {}).get("page_content") for r in results) if p)
+            
+            logger.info(f"Context length: {len(relevant_docs)} characters")
+            logger.debug(f"Context preview: {relevant_docs[:1000]}")
 
             return relevant_docs
             
@@ -202,13 +213,18 @@ class RAGChatbot:
         logger.info(f"Generating response for query: {user_query[:100]}...")
         
         # Construct prompt with context
-        system_prompt = (
-        "Eres un asistente de IA experto."
-        "Responde a la pregunta del usuario basándote EXCLUSIVAMENTE en el contexto proporcionado a continuación."
-        "Si la respuesta no se encuentra en el contexto, simplemente di amablemente que no tienes suficiente información."
-        "Contexto:"
-        f"{context}"
-        )
+        system_prompt = f"""Eres un asistente de IA experto.
+            Responde a la pregunta del usuario basándote EXCLUSIVAMENTE en el contexto proporcionado a continuación.
+            Si la respuesta no se encuentra en el contexto, simplemente di amablemente que no tienes suficiente información.
+
+            CONTEXTO:
+            {context}
+
+            INSTRUCCIONES:
+            - Sé específico y cita el contexto cuando sea relevante
+            - No inventes información fuera del contexto
+            - Si hay múltiples referencias, menciónalas todas"""
+
 
         # system_prompt in english
         #You are a helpful and expert AI Assistant.
@@ -319,13 +335,18 @@ async def chat_completions(request: ChatCompletionRequest):
         if user_query is None:
             raise HTTPException(status_code=400, detail="No user message found")
         
+        logger.info("Retrieving context from vector DB")
+
         # Retrieve relevant context from vector DB
         relevant_context = rag_chatbot.retrieve_context(
             query=user_query, 
             k=TOP_K_RESULTS
         )
-        logger.info("Retrieving context from vector DB")
         
+        logger.info(f"Context length after retrieval: {len(relevant_context)} chars")
+        logger.info(f"Context preview (first 1200 chars):\n{relevant_context[:1200]}")
+
+
         # Generate response using LLM with context
         logger.info("Generating response with LLM")
         response_content = rag_chatbot.generate_response(
