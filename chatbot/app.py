@@ -151,7 +151,10 @@ class RAGChatbot:
         
         try:
             # TODO: Complete the retrieval logic
-            return "Hi AI!"
+            retrieved_docs = self.vectorstore.similarity_search(query, k=k)
+            context = "\n\n".join([doc.page_content for doc in retrieved_docs])
+            logger.info(f"Retrieved {len(retrieved_docs)} documents")
+            return context
             
         except Exception as e:
             logger.error(f"Error retrieving context: {e}")
@@ -183,7 +186,12 @@ class RAGChatbot:
         logger.info(f"Generating response for query: {user_query[:100]}...")
         
         # TODO: Construct prompt with context
-        system_prompt = ""
+        system_prompt = (
+            "You are a helpful assistant. "
+            "Use the following context to answer the user's question. "
+            "If the context doesn't contain the answer, say you don't know.\n\n"
+            f"Context:\n{context}"
+            )
         
         # Prepare LLM request (OpenAI-compatible format)
         llm_messages = [
@@ -283,15 +291,26 @@ async def chat_completions(request: ChatCompletionRequest):
     
     try:
         # TODO: Extract user query
-        user_query = ""
+        user_query = next(
+            (msg.content for msg in reversed(request.messages) if msg.role == "user"),
+            ""
+        )
+        if not user_query:
+            raise HTTPException(status_code=400, detail="No user message found")
         
         # TODO: Retrieve relevant context from vector DB
         logger.info("Retrieving context from vector DB")
+        context = rag_chatbot.retrieve_context(user_query, k=TOP_K_RESULTS)
         
         # TODO:Generate response using LLM with context
         logger.info("Generating response with LLM")
-        response_content = ""
-        
+        response_content = rag_chatbot.generate_response(
+            request.messages,
+            context,
+            request.temperature,
+            request.max_tokens
+        )
+                
         # Return OpenAI-compatible response
         logger.info("Returning response to client")
         return ChatCompletionResponse(

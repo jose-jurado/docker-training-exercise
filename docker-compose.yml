@@ -4,15 +4,65 @@ services:
   # 💬 Chatbot - Backend REST API service
   chatbot:
     # TODO: Build from the /chatbot/Dockerfile when ready
+    build:
+      context: ./chatbot
+    container_name: chatbot
+    ports:
+      - "8080:8080"
+    environment:
+      - ENCODER_URL=http://encoder:8001
+      - LLM_URL=http://llm:4000
+      - VECTOR_DB_URL=http://vector-db:6333
+      - MODEL_NAME=gpt-4o-mini
+      - COLLECTION_NAME=documents
+      - TOP_K_RESULTS=5
+      - CHUNK_SIZE=1000
+    networks:
+      - rag-network
+    depends_on:
+      encoder:
+        condition: service_started
+      llm:
+        condition: service_started
+      vector-db:
+        condition: service_started
 
   # 🎨 UI - Web interface
   ui:
     # TODO: Build from the /ui/Dockerfile when ready
+    build: 
+      context: ./ui
+    container_name: ui
+    ports:
+      - "3000:3000"
+    environment:
+      - CHATBOT_API_URL=http://chatbot:8080
+    networks:
+      - rag-network
+    depends_on:
+      - chatbot
 
   # 🧠 LLM - Language model for response generation
   llm:
     # TODO: You can use a local container for the LLM. See localai/localai:latest-cpu
     # Alternatively, connect to an external LLM service like OpenAI and comment out this section
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: llm
+    ports:
+      - "4000:4000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - ./llm/litellm-config.yaml:/app/config.yaml
+    command: ["--config", "/app/config.yaml"] 
+    networks:
+      - rag-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/models"]
+      interval: 5s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
   # 🔢 Encoder - Embedding model for vectorization
   # GPU VERSION:
@@ -28,17 +78,57 @@ services:
       - MODEL_ID=sentence-transformers/all-MiniLM-L6-v2
       - PORT=8001
     # TODO: complete the setup
+    volumes:
+      - encoder-data:/models
+    networks:
+      - rag-network
+    healthcheck:
+      #test: ["CMD", "curl", "-f", "http://localhost:8001/v1/models"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8001/v1/embeddings || exit 1"]
+      interval: 10s
+      timeout: 60s
+      retries: 10
+      start_period: 300s
 
   # 🗄️ Vector-DB - Document database with semantic search
   vector-db:
     image: qdrant/qdrant:latest
     container_name: vector-db
     # TODO: complete the setup
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant-storage:/qdrant/storage
+    networks:
+      - rag-network
+    healthcheck:
+      #test: ["CMD", "curl", "-f", "http://localhost:6333/metrics"]
+      test: ["CMD-SHELL", "curl -f http://localhost:6333/healthz"]
+      interval: 10s
+      timeout: 20s
+      retries: 10
+      start_period: 60s
 
   # ⚒️ Data-Indexer - Batch job for document processing
   data-indexer:
     # TODO: Build from the /data-indexer/Dockerfile when ready
-
+    build:
+      context: ./data-indexer
+    container_name: data-indexer
+    environment:
+      - ENCODER_URL=http://encoder:8001
+      - VECTOR_DB_URL=http://vector-db:6333
+    volumes:
+      - ./resources:/app/resources:ro
+    networks:
+      - rag-network
+    depends_on:
+      encoder:
+        condition: service_started
+      vector-db:
+        condition: service_started
+    command: ["/app/resources/documents"]
+    
 networks:
   rag-network:
     driver: bridge
